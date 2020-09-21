@@ -14,6 +14,7 @@ class Node:
         self.feature = None
         self.cond_feature = []
         self.Left_sub = None
+        self.Middle_sub = None
         self.Right_sub = None
         self.leaf = leaf
         self.dataset = dataset
@@ -64,6 +65,7 @@ def feature_select(joint_pmf,conditions=None):
         for i1 in conditions:
             dim.remove(i1)
 
+
     entropies = np.zeros(len(joint_pmf.shape))
     for i1 in dim:
         _features = dim.copy()
@@ -86,20 +88,24 @@ def leaf_judgement(subset, labels):
     B = 0
     R = 0
 
-    for i1 in subset:
-        if labels[i1] == 'L':
-            L +=1
-        elif labels[i1] == 'B':
-            B +=1
-        else:
-            R +=1
-    
-    purity = [L/Num, B/Num, R/Num]
+    if Num != 0:
+        for i1 in subset:
+            if labels[i1] == 'L':
+                L +=1
+            elif labels[i1] == 'B':
+                B +=1
+            else:
+                R +=1
+        
+        purity = [L/Num, B/Num, R/Num]
 
-    if np.max(purity) > purity_threshold:
-        leaf_state = label_list[np.argmax(purity)]
+        if np.max(purity) > purity_threshold:
+            leaf_state = label_list[np.argmax(purity)]
+        else:
+            leaf_state = 'not leaf'
     else:
-        leaf_state = 'not leaf'
+        # leaf_state = 'leaf'
+        leaf_state = 'B'
     
     return leaf_state
 
@@ -132,11 +138,14 @@ def train(train_data,train_labels,thresholds):
     while node_queue:
         node = node_queue[0]
         left_set = []
+        middle_set = []
         right_set = []
         subset = train_data[node.dataset]
         for i1 in range(len(subset)):
-            if subset[i1,node.feature]<=thresholds[node.feature]:
+            if subset[i1,node.feature]<thresholds[node.feature]:
                 left_set.append(node.dataset[i1])
+            elif subset[i1,node.feature] == thresholds[node.feature]:
+                middle_set.append(node.dataset[i1])
             else:
                 right_set.append(node.dataset[i1])
         
@@ -148,14 +157,34 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Left_sub.cond_feature.sort()
         if node.Left_sub.leaf == 'not leaf' and node.Left_sub.cond_feature == features:
-            node.Left_sub.leaf = 'leaf'
+            # node.Left_sub.leaf = 'leaf'
+            node.Left_sub.leaf = 'B'
 
         if node.Left_sub.leaf == 'not leaf':
             node_queue.append(node.Left_sub)
-            # TODO select feature
             left_pmf = pmf(train_data[left_set])
             Left_feature = feature_select(joint_pmf=left_pmf,conditions=node.Left_sub.cond_feature)
             node.Left_sub.feature = Left_feature
+
+
+
+        middle_class = leaf_judgement(middle_set,train_labels)
+        node.Middle_sub = Node(root=node,leaf=middle_class,dataset=middle_set)
+        node.Middle_sub.cond_feature = node.cond_feature.copy()
+        node.Middle_sub.cond_feature.append(node.feature)
+
+        # if all features are asked, this node is a leaf node
+        node.Middle_sub.cond_feature.sort()
+        if node.Middle_sub.leaf == 'not leaf' and node.Middle_sub.cond_feature == features:
+            # node.Middle_sub.leaf = 'leaf'
+            node.Middle_sub.leaf = 'B'
+
+        if node.Middle_sub.leaf == 'not leaf':
+            node_queue.append(node.Middle_sub)
+            left_pmf = pmf(train_data[left_set])
+            Left_feature = feature_select(joint_pmf=left_pmf,conditions=node.Middle_sub.cond_feature)
+            node.Middle_sub.feature = Left_feature
+
 
 
         right_class = leaf_judgement(right_set,train_labels)
@@ -166,11 +195,11 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Right_sub.cond_feature.sort()
         if node.Right_sub.leaf == 'not leaf' and node.Right_sub.cond_feature == features:
-            node.Right_sub.leaf = 'leaf'
+            # node.Right_sub.leaf = 'leaf'
+            node.Right_sub.leaf = 'B'
 
         if node.Right_sub.leaf == 'not leaf':
             node_queue.append(node.Right_sub)
-            # TODO select feature
             right_pmf = pmf(train_data[right_set])
             Right_feature = feature_select(joint_pmf=right_pmf,conditions=node.Right_sub.cond_feature)
             node.Right_sub.feature = Right_feature
@@ -179,7 +208,6 @@ def train(train_data,train_labels,thresholds):
 
     return root
 
-# TODO
 def test(test_data,test_labels,root,thresholds):
     results = 0
     Num = len(test_data)
@@ -191,7 +219,6 @@ def test(test_data,test_labels,root,thresholds):
     acc = results/Num
     return acc
 
-# TODO
 def forward(sample,root,thresholds):
     node = root
     while node.leaf == 'not leaf':
@@ -210,17 +237,20 @@ def main():
         lines = f.readlines()
 
     # extract features
-    data = []
-    labels = []
+    raw_data = []
+    raw_labels = []
     for line in lines:
         features = line.strip().split(',')
         for i in range(4):
             features[i+1] = float(features[i+1])
-        labels.append(features[0])
-        data.append(features[1:])
+        raw_labels.append(features[0])
+        raw_data.append(features[1:])
 
-    data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
-    labels = np.array(labels)
+    ag_data = raw_data+raw_data
+    ag_labels = raw_labels+raw_labels
+
+    data = np.array(ag_data) # [Left_weight, Left_distance, Right_weight, Right_distance]
+    labels = np.array(ag_labels)
 
     state = np.random.get_state()
     np.random.shuffle(data) # shuffle data
@@ -228,16 +258,16 @@ def main():
     np.random.shuffle(labels)
     
     # split data into training set & test set
-    train_data = data[:500]
+    train_data = data[:1100]
     train_data = np.array(train_data)
-    train_labels = labels[:500]
+    train_labels = labels[:1100]
 
-    test_data = data[500:]
+    test_data = data[1100:]
     test_data = np.array(test_data)
-    test_labels = labels[500:]
+    test_labels = labels[1100:]
 
-    # use 2 as thresholds for every features
-    thresholds = 2*np.ones(len(train_data[0]))
+    # use 3 as thresholds for every features
+    thresholds = 3*np.ones(len(train_data[0]))
 
     root = train(train_data,train_labels,thresholds)
     acc = test(test_data,test_labels,root,thresholds)
