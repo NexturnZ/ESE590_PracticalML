@@ -4,45 +4,174 @@ import pandas as pd
 import numpy as np
 
 data_dir = 'data/scale/balance-scale.data'
-labels = ['Left','Right','Balanced'] # three states of the scale
+label_list = ['L','B','R'] # three states of the scale
+
+purity_threshold = 0.9
+
+class Node:
+    def __init__(self, root, leaf):
+        self.root = root
+        self.feature = None
+        self.cond_feature = None
+        self.Left_sub = None
+        self.Right_sub = None
+        self.leaf = leaf
+
+    # TODO
+    def forward(self, attri_val):
+        pass
+
+def pmf(val,condition=None):
+    num = len(val[0,:])
+    dim = 5*np.ones(num,dtype=int)
+    dim = dim.tolist()
+    pmf = np.zeros(shape=dim,dtype=int)
+
+    idx_map = (np.array(list(range(np.prod(dim))))+1).reshape(dim)
+    for i1 in range(len(val)):
+        sample = val[i1,:]
+        # sample.astype(np.float64)
+        idx = np.dot(np.flip(np.logspace(0,3,4,endpoint=True,base=5)),sample-1)+1
+        pmf[idx_map==idx] += 1
+
+    pmf = pmf/len(val)
+
+    return pmf
+
+# joint_pmf: joint pmf (dimension = [feature, conditions])
+# feature: the feature to calculate entropy for
+def entropy(joint_pmf,conditions=None):
+    if conditions==None:
+        entro = -np.sum(joint_pmf*np.log2(joint_pmf))
+    else:
+        # H(X|Y) = H(X,Y)-H(Y)
+        joint_entro = entropy(joint_pmf) # calculate
+
+        dim = list(range(len(joint_pmf)))
+        condVal_pmf = np.sum(joint_pmf,axis=tuple(dim.remove(conditions)))
+        condVal_entro = entropy(condVal_pmf)
+        entro = joint_entro-condVal_entro
+    return entro
+
+def feature_select(features,joint_pmf,cond_feature=None):
+    entropies = []
+    for i1 in range(len(features)):
+        _features = features.copy()
+        _features.remove(i1)
+        _marginal_pmf = np.sum(joint_pmf,axis=_features)
+        _entropy = entropy(_marginal_pmf)
+        entropies.append(_entropy)
+
+    feature = np.argmax(entropies)
+    return feature
+
+def leaf_judgement(subset, labels):
+    Num = len(subset)
+    L = 0
+    B = 0
+    R = 0
+
+    for i1 in subset:
+        if labels[i1] == 'L':
+            L +=1
+        elif labels[i1] == 'B':
+            B +=1
+        else:
+            R +=1
+    
+    purity = [L/Num, B/Num, R/Num]
+
+    if np.max(purity) > purity_threshold:
+        leaf_state = label_list[np.argmax(purity)]
+    else:
+        leaf_state = 'not leaf'
+    
+    return leaf_state
 
 
-states = [1,2,3,4,5]
+# TODO
+def train(train_data,train_labels):
 
+    # index of features [[Left_weight, Left_distance, Right_weight, Right_distance]
+    features = list(range(len(train_data[0])))
+    joint_pmf = pmf(train_data)
 
-def entropy(val,condition=None):
+    # use 2 as thresholds for every features
+    thresholds = 2*np.ones(len(train_data[0]))
+
+    # extract feature with larges entropy
+    feature = feature_select(features,joint_pmf)
+
+    # build root node
+    root = Node(None,'not Leaf')
+    root.feature = feature
+
+    node_queue = [root]
+
+    while node_queue:
+        node = node_queue[0]
+        left_set = []
+        right_set = []
+        for i1 in range(len(train_data)):
+            if train_data[i1,node.feature]<=thresholds[node.feature]:
+                left_set.append(i1)
+            else:
+                right_set.append(i1)
+        
+        left_class = leaf_judgement(left_set,train_labels)
+        node.Left_sub = Node(root=node,leaf=left_class)
+        node.Left_sub.cond_feature = [node.feature, node.cond_feature]
+        if node.Left_sub.leaf is 'not leaf':
+            node_queue.append(node.Left_sub)
+            # TODO select feature
+
+        right_class = leaf_judgement(left_set,train_labels)
+        node.Right_sub = Node(root=node,leaf=right_class)
+        node.Right_sub.cond_feature = [node.feature, node.cond_feature]
+        if node.Right_sub.leaf is 'not leaf':
+            node_queue.append(node.Right_sub)
+            # TODO select feature
+        
+        node_queue.remove(node)
+
+    return root
+
+# TODO
+def test(test_data,test_labels,root):
     pass
 
 def main():
-    pass
-
-def pdf(val):
-    num = len(val)
-    dim = np.ones(num,dtype=int)
-    dim = 5*dim.tolist()
-    pdf = np.zeros(shape=dim,dtype=int)
-    # TODO
-    for i1 in range(len(val)):
-        pdf[val[i1]-1] += 1
-    return pdf
-
-if __name__ == "__main__":
+    # load data from file
     with open(data_dir) as f:
         lines = f.readlines()
 
     # extract features
-    samples = []
+    data = []
+    labels = []
     for line in lines:
         features = line.strip().split(',')
         for i in range(4):
-            features[i+1] = int(features[i+1])
-        samples.append(features)
+            features[i+1] = float(features[i+1])
+        labels.append(features[0])
+        data.append(features[1:])
 
+    data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
+    np.random.shuffle(data) # shuffle data
+    
+    # split data into training set & test set
+    train_data = data[:300]
+    train_labels = labels[:300]
+    test_data = data[300:]
+    test_labels = labels[300:]
 
-    data = pd.DataFrame(samples,columns=['state','Lweight','Ldistance','Rweight','Rdistance'])
+    root = train(train_data,train_labels)
 
-    Lweight_pdf = pdf(data['Lweight'])
-    plt.figure()
-    sns.distplot(data['Rdistance'])
-    plt.show()
+    accuracy = test(test_data,test_labels,root)
 
+    # data_plot = pd.DataFrame(data,columns=['Lweight','Ldistance','Rweight','Rdistance'])
+    # plt.figure()
+    # sns.distplot(data_plot['Rdistance'])
+    # plt.show()
+
+if __name__ == "__main__":
+    main()
