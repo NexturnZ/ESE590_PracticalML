@@ -19,9 +19,6 @@ class Node:
         self.leaf = leaf
         self.dataset = dataset
 
-    # TODO
-    def forward(self, attri_val):
-        pass
 
 def pmf(val,conditions=None):
     num = len(val[0,:])
@@ -108,7 +105,6 @@ def leaf_judgement(subset, labels):
         leaf_state = 'B'
     
     return leaf_state
-
 
 def conditions_mapping(conditions,extracted_feature):
     _conditions = np.array(conditions)
@@ -237,20 +233,17 @@ def main():
         lines = f.readlines()
 
     # extract features
-    raw_data = []
-    raw_labels = []
+    data = []
+    labels = []
     for line in lines:
         features = line.strip().split(',')
         for i in range(4):
             features[i+1] = float(features[i+1])
-        raw_labels.append(features[0])
-        raw_data.append(features[1:])
+        labels.append(features[0])
+        data.append(features[1:])
 
-    ag_data = raw_data+raw_data
-    ag_labels = raw_labels+raw_labels
-
-    data = np.array(ag_data) # [Left_weight, Left_distance, Right_weight, Right_distance]
-    labels = np.array(ag_labels)
+    data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
+    labels = np.array(labels)
 
     state = np.random.get_state()
     np.random.shuffle(data) # shuffle data
@@ -258,20 +251,20 @@ def main():
     np.random.shuffle(labels)
     
     # split data into training set & test set
-    train_data = data[:1100]
+    train_data = data[:500]
     train_data = np.array(train_data)
-    train_labels = labels[:1100]
+    train_labels = labels[:500]
 
-    test_data = data[1100:]
+    test_data = data[500:]
     test_data = np.array(test_data)
-    test_labels = labels[1100:]
+    test_labels = labels[500:]
 
     # use 3 as thresholds for every features
     thresholds = 3*np.ones(len(train_data[0]))
 
     root = train(train_data,train_labels,thresholds)
     acc = test(test_data,test_labels,root,thresholds)
-    print('accuracy is %f'%acc)
+    print('\naccuracy is %f\n'%acc)
 
     # accuracy = test(test_data,test_labels,root)
 
