@@ -6,22 +6,23 @@ import numpy as np
 data_dir = 'data/scale/balance-scale.data'
 label_list = ['L','B','R'] # three states of the scale
 
-purity_threshold = 0.9
+purity_threshold = 0.85
 
 class Node:
-    def __init__(self, root, leaf):
+    def __init__(self, root, leaf,dataset):
         self.root = root
         self.feature = None
-        self.cond_feature = None
+        self.cond_feature = []
         self.Left_sub = None
         self.Right_sub = None
         self.leaf = leaf
+        self.dataset = dataset
 
     # TODO
     def forward(self, attri_val):
         pass
 
-def pmf(val,condition=None):
+def pmf(val,conditions=None):
     num = len(val[0,:])
     dim = 5*np.ones(num,dtype=int)
     dim = dim.tolist()
@@ -42,25 +43,39 @@ def pmf(val,condition=None):
 # feature: the feature to calculate entropy for
 def entropy(joint_pmf,conditions=None):
     if conditions==None:
+        joint_pmf[joint_pmf==0] = 0.00001
         entro = -np.sum(joint_pmf*np.log2(joint_pmf))
     else:
         # H(X|Y) = H(X,Y)-H(Y)
         joint_entro = entropy(joint_pmf) # calculate
 
-        dim = list(range(len(joint_pmf)))
-        condVal_pmf = np.sum(joint_pmf,axis=tuple(dim.remove(conditions)))
+        dim = list(range(len(joint_pmf.shape)))
+        for i1 in conditions:
+            dim.remove(i1)
+        condVal_pmf = np.sum(joint_pmf,axis=tuple(dim))
         condVal_entro = entropy(condVal_pmf)
         entro = joint_entro-condVal_entro
     return entro
 
-def feature_select(features,joint_pmf,cond_feature=None):
-    entropies = []
-    for i1 in range(len(features)):
-        _features = features.copy()
+def feature_select(joint_pmf,conditions=None):
+    # extract remaining feature index
+    dim = list(range(len(joint_pmf.shape)))
+    if conditions != None:
+        for i1 in conditions:
+            dim.remove(i1)
+
+    entropies = np.zeros(len(joint_pmf.shape))
+    for i1 in dim:
+        _features = dim.copy()
         _features.remove(i1)
-        _marginal_pmf = np.sum(joint_pmf,axis=_features)
-        _entropy = entropy(_marginal_pmf)
-        entropies.append(_entropy)
+        margin_pmf = np.sum(joint_pmf,axis=tuple(_features))
+        if conditions != None:
+            _conditions = conditions_mapping(conditions=conditions,extracted_feature=_features)
+        else: 
+            _conditions = None
+        
+        _entropy = entropy(joint_pmf=margin_pmf,conditions=_conditions)
+        entropies[i1] = _entropy
 
     feature = np.argmax(entropies)
     return feature
@@ -89,21 +104,27 @@ def leaf_judgement(subset, labels):
     return leaf_state
 
 
-# TODO
-def train(train_data,train_labels):
+def conditions_mapping(conditions,extracted_feature):
+    _conditions = np.array(conditions)
+    _ext = np.array(extracted_feature)
+    for i1 in range(len(conditions)):
+        _conditions[i1] -= len(_ext[_conditions[i1]>_ext])
+    
+    conditions_new = _conditions.tolist()
+    return conditions_new
+
+def train(train_data,train_labels,thresholds):
 
     # index of features [[Left_weight, Left_distance, Right_weight, Right_distance]
     features = list(range(len(train_data[0])))
     joint_pmf = pmf(train_data)
 
-    # use 2 as thresholds for every features
-    thresholds = 2*np.ones(len(train_data[0]))
-
     # extract feature with larges entropy
-    feature = feature_select(features,joint_pmf)
+    feature = feature_select(joint_pmf)
 
     # build root node
-    root = Node(None,'not Leaf')
+    root_set = np.array(list(range(len(train_data))))
+    root = Node(root=None,leaf='not leaf',dataset=root_set)
     root.feature = feature
 
     node_queue = [root]
@@ -112,33 +133,76 @@ def train(train_data,train_labels):
         node = node_queue[0]
         left_set = []
         right_set = []
-        for i1 in range(len(train_data)):
-            if train_data[i1,node.feature]<=thresholds[node.feature]:
-                left_set.append(i1)
+        subset = train_data[node.dataset]
+        for i1 in range(len(subset)):
+            if subset[i1,node.feature]<=thresholds[node.feature]:
+                left_set.append(node.dataset[i1])
             else:
-                right_set.append(i1)
+                right_set.append(node.dataset[i1])
         
         left_class = leaf_judgement(left_set,train_labels)
-        node.Left_sub = Node(root=node,leaf=left_class)
-        node.Left_sub.cond_feature = [node.feature, node.cond_feature]
-        if node.Left_sub.leaf is 'not leaf':
+        node.Left_sub = Node(root=node,leaf=left_class,dataset=left_set)
+        node.Left_sub.cond_feature = node.cond_feature.copy()
+        node.Left_sub.cond_feature.append(node.feature)
+
+        # if all features are asked, this node is a leaf node
+        node.Left_sub.cond_feature.sort()
+        if node.Left_sub.leaf == 'not leaf' and node.Left_sub.cond_feature == features:
+            node.Left_sub.leaf = 'leaf'
+
+        if node.Left_sub.leaf == 'not leaf':
             node_queue.append(node.Left_sub)
             # TODO select feature
+            left_pmf = pmf(train_data[left_set])
+            Left_feature = feature_select(joint_pmf=left_pmf,conditions=node.Left_sub.cond_feature)
+            node.Left_sub.feature = Left_feature
 
-        right_class = leaf_judgement(left_set,train_labels)
-        node.Right_sub = Node(root=node,leaf=right_class)
-        node.Right_sub.cond_feature = [node.feature, node.cond_feature]
-        if node.Right_sub.leaf is 'not leaf':
+
+        right_class = leaf_judgement(right_set,train_labels)
+        node.Right_sub = Node(root=node,leaf=right_class,dataset=right_set)
+        node.Right_sub.cond_feature = node.cond_feature.copy()
+        node.Right_sub.cond_feature.append(node.feature)
+
+        # if all features are asked, this node is a leaf node
+        node.Right_sub.cond_feature.sort()
+        if node.Right_sub.leaf == 'not leaf' and node.Right_sub.cond_feature == features:
+            node.Right_sub.leaf = 'leaf'
+
+        if node.Right_sub.leaf == 'not leaf':
             node_queue.append(node.Right_sub)
             # TODO select feature
+            right_pmf = pmf(train_data[right_set])
+            Right_feature = feature_select(joint_pmf=right_pmf,conditions=node.Right_sub.cond_feature)
+            node.Right_sub.feature = Right_feature
         
-        node_queue.remove(node)
+        node_queue.pop(0) # remove first node
 
     return root
 
 # TODO
-def test(test_data,test_labels,root):
-    pass
+def test(test_data,test_labels,root,thresholds):
+    results = 0
+    Num = len(test_data)
+    for i1 in range(Num):
+        result = forward(test_data[i1],root,thresholds)
+        if result == test_labels[i1]:
+            results += 1
+
+    acc = results/Num
+    return acc
+
+# TODO
+def forward(sample,root,thresholds):
+    node = root
+    while node.leaf == 'not leaf':
+        idx = node.feature
+        if sample[idx] <= thresholds[idx]:
+            node = node.Left_sub
+        else:
+            node = node.Right_sub
+
+    result = node.leaf
+    return result
 
 def main():
     # load data from file
@@ -156,17 +220,30 @@ def main():
         data.append(features[1:])
 
     data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
+    labels = np.array(labels)
+
+    state = np.random.get_state()
     np.random.shuffle(data) # shuffle data
+    np.random.set_state(state)
+    np.random.shuffle(labels)
     
     # split data into training set & test set
-    train_data = data[:300]
-    train_labels = labels[:300]
-    test_data = data[300:]
-    test_labels = labels[300:]
+    train_data = data[:500]
+    train_data = np.array(train_data)
+    train_labels = labels[:500]
 
-    root = train(train_data,train_labels)
+    test_data = data[500:]
+    test_data = np.array(test_data)
+    test_labels = labels[500:]
 
-    accuracy = test(test_data,test_labels,root)
+    # use 2 as thresholds for every features
+    thresholds = 2*np.ones(len(train_data[0]))
+
+    root = train(train_data,train_labels,thresholds)
+    acc = test(test_data,test_labels,root,thresholds)
+    print('accuracy is %f'%acc)
+
+    # accuracy = test(test_data,test_labels,root)
 
     # data_plot = pd.DataFrame(data,columns=['Lweight','Ldistance','Rweight','Rdistance'])
     # plt.figure()
