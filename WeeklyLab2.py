@@ -102,35 +102,28 @@ def feature_select(joint_pmf,conditions=None):
 
 def leaf_judgement(subset, labels, feature):
     Num = len(subset)
-    purities = np.zeros(len(label_list))
-
-    
-
     if Num != 0:
-        for i1 in subset:
-            for i2 in range(len(label_list)):
-                if labels[i1] == label_list[i2]:
-                    purities[i2] +=1
-                    break
-
-
-            # if labels[i1] == 'L':
-            #     L +=1
-            # elif labels[i1] == 'B':
-            #     B +=1
-            # else:
-            #     R +=1
-        
-        final_purities = purities/Num
-
-        if np.max(final_purities) > purity_threshold:
-            leaf_state = label_list[np.argmax(final_purities)]
+        purities = purity_cal(subset, labels, feature)
+        if np.max(purities) > purity_threshold:
+            leaf_state = label_list[np.argmax(purities)]
         else:
             leaf_state = 'not leaf'
     else:
         leaf_state = 'leaf'
     
     return leaf_state
+
+def purity_cal(subset, labels, feature):
+    Num = len(subset)
+    purities = np.zeros(len(label_list))
+
+    for i1 in subset:
+        for i2 in range(len(label_list)):
+            if labels[i1] == label_list[i2]:
+                purities[i2] +=1
+
+    final_purities = purities/Num
+    return final_purities
 
 def conditions_mapping(conditions,extracted_feature):
     _conditions = np.array(conditions)
@@ -177,7 +170,8 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Left_sub.cond_feature.sort()
         if node.Left_sub.leaf == 'not leaf' and node.Left_sub.cond_feature == features:
-            node.Left_sub.leaf = 'leaf'
+            _purity = purity_cal(left_set,train_labels,node.feature)
+            node.Left_sub.leaf = label_list[np.argmax(_purity)]
 
         if node.Left_sub.leaf == 'not leaf':
             node_queue.append(node.Left_sub)
@@ -195,7 +189,8 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Right_sub.cond_feature.sort()
         if node.Right_sub.leaf == 'not leaf' and node.Right_sub.cond_feature == features:
-            node.Right_sub.leaf = 'leaf'
+            _purity = purity_cal(right_set,train_labels,node.feature)
+            node.Right_sub.leaf = label_list[np.argmax(_purity)]
 
         if node.Right_sub.leaf == 'not leaf':
             node_queue.append(node.Right_sub)
@@ -252,14 +247,12 @@ def main():
     np.random.shuffle(labels)
     
     # split data into training set & test set
-    _tmp = int(np.floor(len(labels)/2))
-    train_data = data[:1500]
-    train_labels = labels[:1500]
+    _tmp = int(np.floor(len(labels)/3*2))
+    train_data = data[:_tmp]
+    train_labels = labels[:_tmp]
 
-    test_data = data[1500:]
-    test_labels = labels[1500:]
-
-
+    test_data = data[_tmp:]
+    test_labels = labels[_tmp:]
 
 
     root = train(train_data,train_labels,thresholds)
