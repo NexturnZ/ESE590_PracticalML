@@ -3,10 +3,20 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 
-data_dir = 'data/scale/balance-scale.data'
-label_list = ['L','B','R'] # three states of the scale
+data_dir = 'data/car/car.data'
+label_list = ['unacc','acc','good','vgood'] # unacceptable, acceptable, good, very-good
+feature_list = ['buying','maint','doors','persons','lug-boot','safety']
+feature_map = [['vhigh','high','med','low'], \
+                ['vhigh','high','med','low'], \
+                ['2','3','4','5more'], \
+                ['2','4','more'], \
+                ['small','med','big'], \
+                ['low','med','high']]
 
 purity_threshold = 0.85
+
+# use 3 as thresholds for every features
+thresholds = [2,2,2,2,2,2]
 
 class Node:
     def __init__(self, root, leaf,dataset):
@@ -14,23 +24,34 @@ class Node:
         self.feature = None
         self.cond_feature = []
         self.Left_sub = None
-        self.Middle_sub = None
         self.Right_sub = None
         self.leaf = leaf
         self.dataset = dataset
 
 
 def pmf(val,conditions=None):
-    num = len(val[0,:])
-    dim = 5*np.ones(num,dtype=int)
-    dim = dim.tolist()
+    num = len(val[0,:]) # number of dimensions
+    dim = []   # initialize dimension
+    for i1 in range(num):
+        dim.append(len(feature_map[i1]))
+
+
     pmf = np.zeros(shape=dim,dtype=int)
 
-    idx_map = (np.array(list(range(np.prod(dim))))+1).reshape(dim)
+    _tmp = np.zeros(num)
+    for i1 in range(num-1):
+        _tmp[i1] = np.prod(dim[i1+1:])
+    _tmp[-1] = 1
+
+
+    idx_map = (np.array(list(range(np.prod(dim))))).reshape(dim)
     for i1 in range(len(val)):
         sample = val[i1,:]
-        # sample.astype(np.float64)
-        idx = np.dot(np.flip(np.logspace(0,3,4,endpoint=True,base=5)),sample-1)+1
+        _feature = np.zeros(num)
+        for i1 in range(num):
+            _feature[i1] = feature_map[i1].index(sample[i1])
+        
+        idx = np.dot(_tmp,_feature)
         pmf[idx_map==idx] += 1
 
     pmf = pmf/len(val)
@@ -79,30 +100,35 @@ def feature_select(joint_pmf,conditions=None):
     feature = np.argmax(entropies)
     return feature
 
-def leaf_judgement(subset, labels):
+def leaf_judgement(subset, labels, feature):
     Num = len(subset)
-    L = 0
-    B = 0
-    R = 0
+    purities = np.zeros(len(label_list))
+
+    
 
     if Num != 0:
         for i1 in subset:
-            if labels[i1] == 'L':
-                L +=1
-            elif labels[i1] == 'B':
-                B +=1
-            else:
-                R +=1
-        
-        purity = [L/Num, B/Num, R/Num]
+            for i2 in range(len(label_list)):
+                if labels[i1] == label_list[i2]:
+                    purities[i2] +=1
+                    break
 
-        if np.max(purity) > purity_threshold:
-            leaf_state = label_list[np.argmax(purity)]
+
+            # if labels[i1] == 'L':
+            #     L +=1
+            # elif labels[i1] == 'B':
+            #     B +=1
+            # else:
+            #     R +=1
+        
+        final_purities = purities/Num
+
+        if np.max(final_purities) > purity_threshold:
+            leaf_state = label_list[np.argmax(final_purities)]
         else:
             leaf_state = 'not leaf'
     else:
-        # leaf_state = 'leaf'
-        leaf_state = 'B'
+        leaf_state = 'leaf'
     
     return leaf_state
 
@@ -134,18 +160,16 @@ def train(train_data,train_labels,thresholds):
     while node_queue:
         node = node_queue[0]
         left_set = []
-        middle_set = []
         right_set = []
         subset = train_data[node.dataset]
         for i1 in range(len(subset)):
-            if subset[i1,node.feature]<thresholds[node.feature]:
+            if feature_map[node.feature].index(subset[i1,node.feature])<thresholds[node.feature]:
                 left_set.append(node.dataset[i1])
-            elif subset[i1,node.feature] == thresholds[node.feature]:
-                middle_set.append(node.dataset[i1])
             else:
                 right_set.append(node.dataset[i1])
         
-        left_class = leaf_judgement(left_set,train_labels)
+        # construct left offspring node
+        left_class = leaf_judgement(left_set,train_labels,node.feature)
         node.Left_sub = Node(root=node,leaf=left_class,dataset=left_set)
         node.Left_sub.cond_feature = node.cond_feature.copy()
         node.Left_sub.cond_feature.append(node.feature)
@@ -153,8 +177,7 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Left_sub.cond_feature.sort()
         if node.Left_sub.leaf == 'not leaf' and node.Left_sub.cond_feature == features:
-            # node.Left_sub.leaf = 'leaf'
-            node.Left_sub.leaf = 'B'
+            node.Left_sub.leaf = 'leaf'
 
         if node.Left_sub.leaf == 'not leaf':
             node_queue.append(node.Left_sub)
@@ -163,27 +186,8 @@ def train(train_data,train_labels,thresholds):
             node.Left_sub.feature = Left_feature
 
 
-
-        middle_class = leaf_judgement(middle_set,train_labels)
-        node.Middle_sub = Node(root=node,leaf=middle_class,dataset=middle_set)
-        node.Middle_sub.cond_feature = node.cond_feature.copy()
-        node.Middle_sub.cond_feature.append(node.feature)
-
-        # if all features are asked, this node is a leaf node
-        node.Middle_sub.cond_feature.sort()
-        if node.Middle_sub.leaf == 'not leaf' and node.Middle_sub.cond_feature == features:
-            # node.Middle_sub.leaf = 'leaf'
-            node.Middle_sub.leaf = 'B'
-
-        if node.Middle_sub.leaf == 'not leaf':
-            node_queue.append(node.Middle_sub)
-            left_pmf = pmf(train_data[left_set])
-            Left_feature = feature_select(joint_pmf=left_pmf,conditions=node.Middle_sub.cond_feature)
-            node.Middle_sub.feature = Left_feature
-
-
-
-        right_class = leaf_judgement(right_set,train_labels)
+        # construct right offspring node
+        right_class = leaf_judgement(right_set,train_labels,node.feature)
         node.Right_sub = Node(root=node,leaf=right_class,dataset=right_set)
         node.Right_sub.cond_feature = node.cond_feature.copy()
         node.Right_sub.cond_feature.append(node.feature)
@@ -191,8 +195,7 @@ def train(train_data,train_labels,thresholds):
         # if all features are asked, this node is a leaf node
         node.Right_sub.cond_feature.sort()
         if node.Right_sub.leaf == 'not leaf' and node.Right_sub.cond_feature == features:
-            # node.Right_sub.leaf = 'leaf'
-            node.Right_sub.leaf = 'B'
+            node.Right_sub.leaf = 'leaf'
 
         if node.Right_sub.leaf == 'not leaf':
             node_queue.append(node.Right_sub)
@@ -219,7 +222,7 @@ def forward(sample,root,thresholds):
     node = root
     while node.leaf == 'not leaf':
         idx = node.feature
-        if sample[idx] <= thresholds[idx]:
+        if feature_map[idx].index(sample[idx]) < thresholds[idx]:
             node = node.Left_sub
         else:
             node = node.Right_sub
@@ -237,10 +240,8 @@ def main():
     labels = []
     for line in lines:
         features = line.strip().split(',')
-        for i in range(4):
-            features[i+1] = float(features[i+1])
-        labels.append(features[0])
-        data.append(features[1:])
+        labels.append(features[-1])
+        data.append(features[:6])
 
     data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
     labels = np.array(labels)
@@ -251,27 +252,20 @@ def main():
     np.random.shuffle(labels)
     
     # split data into training set & test set
-    train_data = data[:500]
-    train_data = np.array(train_data)
-    train_labels = labels[:500]
+    _tmp = int(np.floor(len(labels)/2))
+    train_data = data[:1500]
+    train_labels = labels[:1500]
 
-    test_data = data[500:]
-    test_data = np.array(test_data)
-    test_labels = labels[500:]
+    test_data = data[1500:]
+    test_labels = labels[1500:]
 
-    # use 3 as thresholds for every features
-    thresholds = 3*np.ones(len(train_data[0]))
+
+
 
     root = train(train_data,train_labels,thresholds)
     acc = test(test_data,test_labels,root,thresholds)
     print('\naccuracy is %f\n'%acc)
 
-    # accuracy = test(test_data,test_labels,root)
-
-    # data_plot = pd.DataFrame(data,columns=['Lweight','Ldistance','Rweight','Rdistance'])
-    # plt.figure()
-    # sns.distplot(data_plot['Rdistance'])
-    # plt.show()
 
 if __name__ == "__main__":
     main()
