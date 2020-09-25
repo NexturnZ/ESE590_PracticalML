@@ -3,20 +3,29 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 
+# use CAR data set
 data_dir = 'data/car/car.data'
 label_list = ['unacc','acc','good','vgood'] # unacceptable, acceptable, good, very-good
-feature_list = ['buying','maint','doors','persons','lug-boot','safety']
 feature_map = [['vhigh','high','med','low'], \
                 ['vhigh','high','med','low'], \
                 ['2','3','4','5more'], \
                 ['2','4','more'], \
                 ['small','med','big'], \
                 ['low','med','high']]
+thresholds = [2,2,2,2,2,2] # threshold for each feature
+
+# # use scale data set
+# data_dir = 'data/scale/balance-scale.data'
+# label_list = ['L','B','R']
+# feature_map = [['1','2','3','4','5'], \
+#                 ['1','2','3','4','5'], \
+#                 ['1','2','3','4','5'], \
+#                 ['1','2','3','4','5']]
+# thresholds = [3,3,3,3] # threshold for each feature
 
 purity_threshold = 0.85
 
-# use 3 as thresholds for every features
-thresholds = [2,2,2,2,2,2]
+
 
 class Node:
     def __init__(self, root, leaf,dataset):
@@ -161,7 +170,7 @@ def train(train_data,train_labels,thresholds):
             else:
                 right_set.append(node.dataset[i1])
         
-        # construct left offspring node
+        ####################### construct left offspring node
         left_class = leaf_judgement(left_set,train_labels,node.feature)
         node.Left_sub = Node(root=node,leaf=left_class,dataset=left_set)
         node.Left_sub.cond_feature = node.cond_feature.copy()
@@ -172,6 +181,7 @@ def train(train_data,train_labels,thresholds):
         if node.Left_sub.leaf == 'not leaf' and node.Left_sub.cond_feature == features:
             _purity = purity_cal(left_set,train_labels,node.feature)
             node.Left_sub.leaf = label_list[np.argmax(_purity)]
+            # node.Left_sub.leaf = 'leaf'
 
         if node.Left_sub.leaf == 'not leaf':
             node_queue.append(node.Left_sub)
@@ -180,7 +190,8 @@ def train(train_data,train_labels,thresholds):
             node.Left_sub.feature = Left_feature
 
 
-        # construct right offspring node
+
+        ########################### construct right offspring node
         right_class = leaf_judgement(right_set,train_labels,node.feature)
         node.Right_sub = Node(root=node,leaf=right_class,dataset=right_set)
         node.Right_sub.cond_feature = node.cond_feature.copy()
@@ -191,6 +202,7 @@ def train(train_data,train_labels,thresholds):
         if node.Right_sub.leaf == 'not leaf' and node.Right_sub.cond_feature == features:
             _purity = purity_cal(right_set,train_labels,node.feature)
             node.Right_sub.leaf = label_list[np.argmax(_purity)]
+            # node.Right_sub.leaf = 'leaf'
 
         if node.Right_sub.leaf == 'not leaf':
             node_queue.append(node.Right_sub)
@@ -236,7 +248,7 @@ def main():
     for line in lines:
         features = line.strip().split(',')
         labels.append(features[-1])
-        data.append(features[:6])
+        data.append(features[:-1])
 
     data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
     labels = np.array(labels)
