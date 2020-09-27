@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+from collections import Counter
 
 # use CAR data set
 data_dir = 'data/car/car.data'
@@ -23,6 +24,23 @@ thresholds = [2,2,2,2,2,2] # threshold for each feature
 #                 ['1','2','3','4','5']]
 # thresholds = [3,3,3,3] # threshold for each feature
 
+# # use beast-cancer data set
+# data_dir = 'data/breast-cancer/breast-cancer.data'
+# label_list = ['no-recurrence-events','recurrence-events']
+# feature_map = [['10-19','20-29','30-39','40-49','50-59','60-69','70-79','80-89','90-99'], \
+#                 ['lt40','ge40','premeno'], \
+#                 ['0-4','5-9','10-14','15-19','20-24','25-29','30-34','35-39','40-44', \
+#                  '45-49','50-54','55-59'], \
+#                 ['0-2','3-5','6-8','9-11','12-14','15-17','18-20','21-23','24-26', \
+#                  '27-29','30-32','33-35','36-39'], \
+#                 ['yes','no'], \
+#                 ['1', '2', '3'], \
+#                 ['left', 'right'], \
+#                 ['left_up', 'left_low', 'right_up',	'right_low', 'central'], \
+#                 ['yes', 'no']]
+# thresholds = [1,4,1,6,7,1,1,1,3,1]
+
+
 purity_threshold = 0.85
 
 
@@ -33,6 +51,7 @@ class Node:
         self.feature = None
         self.cond_feature = []
         self.Left_sub = None
+        # self.Middle_sub = None
         self.Right_sub = None
         self.leaf = leaf
         self.dataset = dataset
@@ -145,8 +164,8 @@ def conditions_mapping(conditions,extracted_feature):
 
 def train(train_data,train_labels,thresholds):
 
-    # index of features [[Left_weight, Left_distance, Right_weight, Right_distance]
-    features = list(range(len(train_data[0])))
+    
+    features = list(range(len(train_data[0]))) # index of features
     joint_pmf = pmf(train_data)
 
     # extract feature with larges entropy
@@ -162,11 +181,14 @@ def train(train_data,train_labels,thresholds):
     while node_queue:
         node = node_queue[0]
         left_set = []
+        middle_set = []
         right_set = []
         subset = train_data[node.dataset]
         for i1 in range(len(subset)):
             if feature_map[node.feature].index(subset[i1,node.feature])<thresholds[node.feature]:
                 left_set.append(node.dataset[i1])
+            # elif feature_map[node.feature].index(subset[i1,node.feature])==thresholds[node.feature]:
+            #     middle_set.append(node.dataset[i1])
             else:
                 right_set.append(node.dataset[i1])
         
@@ -189,7 +211,24 @@ def train(train_data,train_labels,thresholds):
             Left_feature = feature_select(joint_pmf=left_pmf,conditions=node.Left_sub.cond_feature)
             node.Left_sub.feature = Left_feature
 
+        # ####################### construct middle offspring node
+        # middle_class = leaf_judgement(middle_set,train_labels,node.feature)
+        # node.Middle_sub = Node(root=node,leaf=middle_class,dataset=middle_set)
+        # node.Middle_sub.cond_feature = node.cond_feature.copy()
+        # node.Middle_sub.cond_feature.append(node.feature)
 
+        # # if all features are asked, this node is a leaf node
+        # node.Middle_sub.cond_feature.sort()
+        # if node.Middle_sub.leaf == 'not leaf' and node.Middle_sub.cond_feature == features:
+        #     _purity = purity_cal(middle_set,train_labels,node.feature)
+        #     node.Middle_sub.leaf = label_list[np.argmax(_purity)]
+        #     # node.Left_sub.leaf = 'leaf'
+
+        # if node.Middle_sub.leaf == 'not leaf':
+        #     node_queue.append(node.Middle_sub)
+        #     middle_pmf = pmf(train_data[middle_set])
+        #     Middle_feature = feature_select(joint_pmf=middle_pmf,conditions=node.Middle_sub.cond_feature)
+        #     node.Middle_sub.feature = Middle_feature
 
         ########################### construct right offspring node
         right_class = leaf_judgement(right_set,train_labels,node.feature)
@@ -215,14 +254,19 @@ def train(train_data,train_labels,thresholds):
     return root
 
 def test(test_data,test_labels,root,thresholds):
-    results = 0
+    correct = 0
+    results = []
     Num = len(test_data)
     for i1 in range(Num):
         result = forward(test_data[i1],root,thresholds)
+        results.append(result)
         if result == test_labels[i1]:
-            results += 1
+            correct += 1
 
-    acc = results/Num
+    acc = correct/Num
+    # print('\n')
+    # print(Counter(results))
+
     return acc
 
 def forward(sample,root,thresholds):
@@ -231,6 +275,8 @@ def forward(sample,root,thresholds):
         idx = node.feature
         if feature_map[idx].index(sample[idx]) < thresholds[idx]:
             node = node.Left_sub
+        # elif feature_map[idx].index(sample[idx]) == thresholds[idx]:
+        #     node = node.Middle_sub
         else:
             node = node.Right_sub
 
@@ -247,10 +293,13 @@ def main():
     labels = []
     for line in lines:
         features = line.strip().split(',')
-        labels.append(features[-1])
-        data.append(features[:-1])
+        if '?' not in features:
+            # labels.append(features[0])
+            # data.append(features[1:])
+            labels.append(features[-1])
+            data.append(features[:-1])
 
-    data = np.array(data) # [Left_weight, Left_distance, Right_weight, Right_distance]
+    data = np.array(data) 
     labels = np.array(labels)
 
     state = np.random.get_state()
