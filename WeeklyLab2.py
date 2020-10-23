@@ -56,7 +56,6 @@ class Node:
         self.leaf = leaf
         self.dataset = dataset
 
-
 def pmf(val,conditions=None):
     num = len(val[0,:]) # number of dimensions
     dim = []   # initialize dimension
@@ -181,7 +180,7 @@ def train(train_data,train_labels,thresholds):
     while node_queue:
         node = node_queue[0]
         left_set = []
-        middle_set = []
+        # middle_set = []
         right_set = []
         subset = train_data[node.dataset]
         for i1 in range(len(subset)):
@@ -291,13 +290,18 @@ def main():
     # extract features
     data = []
     labels = []
+    data_plot = []
     for line in lines:
         features = line.strip().split(',')
         if '?' not in features:
             # labels.append(features[0])
             # data.append(features[1:])
+            data_plot.append(features)
             labels.append(features[-1])
             data.append(features[:-1])
+
+
+    data_plot = pd.DataFrame(data_plot,columns=['buying','maint','doors','persons','lug','safetys','label'])
 
     data = np.array(data) 
     labels = np.array(labels)
@@ -320,6 +324,11 @@ def main():
     acc = test(test_data,test_labels,root,thresholds)
     print('\naccuracy is %f\n'%acc)
 
+
+    # plt.figure()
+    # # sns.pairplot(data_plot,hue='label',vars=['buying','maint','safety'])
+    # sns.barplot(hue='label',x='buying',y='safety',data=data)
+    # plt.show()
 
 if __name__ == "__main__":
     main()
